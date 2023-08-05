@@ -244,4 +244,3 @@ class Game:
 
 g = Game()
 g.mainloop()
-g.cleanup()
