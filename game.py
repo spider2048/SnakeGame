@@ -1,24 +1,26 @@
-import pygame as pg
 import enum
 import logging
+import sys
 import random
 
+import pygame as pg
+from pygame import Vector2 as Vec2
 logging.basicConfig(level=logging.DEBUG)
 
 
 class Direction(enum.Enum):
-    up = pg.K_UP
-    down = pg.K_DOWN
-    left = pg.K_LEFT
-    right = pg.K_RIGHT
+    UP = Vec2(0, 1)
+    DOWN = Vec2(0, -1)
+    LEFT = Vec2(-1, 0)
+    RIGHT = Vec2(1, 0)
 
 
 class Snake:
     def __init__(self, bounds, width, surface):
-        logging.debug(f"snake.__init__ with bounds: {bounds}")
-        self.boxes = [
-            [0, 0, Direction.right],
-        ]
+        logging.debug("snake.__init__ with bounds: %s", bounds)
+
+        self.pos = [Vec2(0, 0)]
+        self.dirs = [Direction.RIGHT]
 
         self.rects: list[pg.Rect] = []
         self.bait_rect = None
@@ -31,50 +33,46 @@ class Snake:
 
         self.border_color = (255, 0, 0)
         self.body_color = (255, 255, 0)
-        self.bait_color = (0, 255, 133)
+        self.bait_color = (0, 100, 0)
 
         self.surface = surface
 
         self.prev_moved = 0
-        self.move_delay = 100
+        self.move_delay = 15
 
-        self.is_rendered = False
-
-        self._vertical_set = set((Direction.up, Direction.down))
-        self._horizontal_set = set((Direction.left, Direction.right))
+        self._vertical_set = set((Direction.UP, Direction.DOWN))
+        self._horizontal_set = set((Direction.LEFT, Direction.RIGHT))
 
     def move(self):
-        self.is_rendered = False
-        for i in range(len(self.boxes)):
-            x, y, d = self.boxes[i]
+        for i, (pos, d) in enumerate(zip(self.pos, self.dirs)):
             match d:
-                case Direction.up:
-                    if y == 0:
-                        self.boxes[i][1] = self.ybound
+                case Direction.UP:
+                    if pos.y <= 0:
+                        pos.y = self.ybound
                     else:
-                        self.boxes[i][1] -= self.box_size
+                        pos.y -= self.box_size
 
-                case Direction.down:
-                    if y + self.box_size == self.ybound:
-                        self.boxes[i][1] = 0
+                case Direction.DOWN:
+                    if pos.y + self.box_size >= self.ybound:
+                        pos.y = 0
                     else:
-                        self.boxes[i][1] += self.box_size
+                        pos.y += self.box_size
 
-                case Direction.left:
-                    if x == 0:
-                        self.boxes[i][0] = self.xbound
+                case Direction.LEFT:
+                    if pos.x <= 0:
+                        pos.x = self.xbound
                     else:
-                        self.boxes[i][0] -= self.box_size
+                        pos.x -= self.box_size
 
-                case Direction.right:
-                    if x + self.box_size == self.xbound:
-                        self.boxes[i][0] = 0
+                case Direction.RIGHT:
+                    if pos.x + self.box_size >= self.xbound:
+                        pos.x = 0
                     else:
-                        self.boxes[i][0] += self.box_size
+                        pos.x += self.box_size
 
-        prev_direction = self.boxes[0][2]
-        for i in range(1, len(self.boxes)):
-            self.boxes[i][2], prev_direction = prev_direction, self.boxes[i][2]
+        prev_direction = self.dirs[0]
+        for i in range(1, len(self.dirs)):
+            self.dirs[i], prev_direction = prev_direction, self.dirs[i]
 
         self.prev_moved = pg.time.get_ticks()
 
@@ -95,42 +93,39 @@ class Snake:
             self.despawn_bait()
 
         if self.rects and any(self.rects[0].collidelistall(self.rects[1:])):
-            logging.error(f"snake is dead!")
+            logging.error("snake is dead!")
             self.alive = False
 
     def turn(self, direction: Direction):
-        x, y, d = self.boxes[0]
-        if x >= self.xbound or y >= self.ybound:
+        ip = self.pos[0]
+        if ip.x >= self.xbound or ip.y >= self.ybound:
             return
 
-        direction_set = set((d, direction))
-        if direction_set == self._vertical_set or direction_set == self._horizontal_set:
-            logging.debug(f"prevented from coming back")
+        direction_set = set((self.dirs[0], direction))
+        if direction_set in (self._vertical_set, self._horizontal_set):
+            logging.debug("prevented from coming back")
             return
 
-        self.boxes[0][2] = direction
+        self.dirs[0] = direction
 
     def eat(self):
-        self.is_rendered = False
-        x, y, d = self.boxes[-1]
-        match d:
-            case Direction.up:
-                self.boxes.append([x, y + self.box_size, d])
-            case Direction.down:
-                self.boxes.append([x, y - self.box_size, d])
-            case Direction.left:
-                self.boxes.append([x + self.box_size, y, d])
-            case Direction.right:
-                self.boxes.append([x - self.box_size, y, d])
+        x, y = self.pos[-1]
+        match self.dirs[-1]:
+            case Direction.UP:
+                self.pos.append(Vec2(x, y + self.box_size))
+            case Direction.DOWN:
+                self.pos.append(Vec2(x, y - self.box_size))
+            case Direction.LEFT:
+                self.pos.append(Vec2(x + self.box_size, y))
+            case Direction.RIGHT:
+                self.pos.append(Vec2(x - self.box_size, y))
+        
+        self.dirs.append(self.dirs[-1])
 
-    def render(self):
-        if self.is_rendered:
-            return
-
+    def render(self):        
         self.rects.clear()
-        self.is_rendered = True
-        self.surface.fill("black")
-        for x, y, _ in self.boxes:
+        self.surface.fill("green")
+        for x, y in self.pos:
             pg.draw.rect(
                 self.surface,
                 self.body_color,
@@ -165,14 +160,13 @@ class Snake:
 
     def spawn_bait(self):
         self.bait = (
-            random.randint(0, self.xbound),
-            random.randint(0, self.ybound),
+            random.randint(0, self.xbound - self.box_size),
+            random.randint(0, self.ybound - self.box_size),
         )
-        logging.debug(f"bait.spawn at {self.bait}")
-        self.is_rendered = False
+
+        logging.debug("bait.spawn at %s", self.bait)
 
     def despawn_bait(self):
-        self.is_rendered = False
         self.bait = None
         self.bait_rect = None
 
@@ -187,7 +181,7 @@ class Game:
         self.running = False
         self.screen = pg.display.set_mode((self.width, self.height))
 
-        self.box_size = 50
+        self.box_size = 30
         self.bounds = (self.width, self.height)
 
         self.snake = None
@@ -206,19 +200,18 @@ class Game:
             while self.snake.alive:
                 for event in pg.event.get():
                     if event.type == pg.WINDOWCLOSE:
-                        pg.quit()
-                        quit()
+                        self.cleanup()
 
                     if event.type == pg.KEYDOWN:
                         match event.key:
                             case pg.K_UP:
-                                self.snake.turn(Direction.up)
+                                self.snake.turn(Direction.UP)
                             case pg.K_DOWN:
-                                self.snake.turn(Direction.down)
+                                self.snake.turn(Direction.DOWN)
                             case pg.K_LEFT:
-                                self.snake.turn(Direction.left)
+                                self.snake.turn(Direction.LEFT)
                             case pg.K_RIGHT:
-                                self.snake.turn(Direction.right)
+                                self.snake.turn(Direction.RIGHT)
 
                 self.snake.tick()
                 clock.tick(60)
@@ -237,10 +230,14 @@ class Game:
             while wait:
                 ev = pg.event.wait()
                 if ev.type == pg.WINDOWCLOSE:
-                    pg.quit()
-                    quit()
+                    self.cleanup()
                 wait = not (ev.type == pg.KEYDOWN and ev.key == pg.K_r)
 
+    @staticmethod
+    def cleanup():
+        pg.quit()
+        sys.exit(0)
 
-g = Game()
-g.mainloop()
+if __name__ == '__main__':
+    g = Game()
+    g.mainloop()
